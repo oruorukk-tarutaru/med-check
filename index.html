@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>服薬チェック (24H Timer)</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'media',
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            50: '#f0fdf4',
+                            500: '#22c55e',
+                            600: '#16a34a',
+                            700: '#15803d',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            -webkit-tap-highlight-color: transparent;
+        }
+    </style>
+</head>
+<body class="bg-slate-100 dark:bg-slate-900 text-slate-800 dark:text-slate-100 min-h-screen flex flex-col justify-between transition-colors duration-200">
+
+    <div class="max-w-md w-full mx-auto p-4 sm:p-6 flex-grow flex flex-col justify-center">
+        <!-- ヘッダー -->
+        <header class="mb-6 text-center">
+            <h1 class="text-2xl font-bold tracking-tight text-slate-900 dark:text-white flex items-center justify-center gap-2">
+                <svg class="w-7 h-7 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                </svg>
+                服薬タイマーチェック
+            </h1>
+            <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                チェック後、24時間経つと自動的に未服用へ戻ります
+            </p>
+        </header>
+
+        <!-- メインリスト -->
+        <main class="space-y-3" id="med-list">
+            <!-- JavaScriptで動的に生成されます -->
+        </main>
+
+        <!-- カスタム追加フォーム -->
+        <form id="add-form" class="mt-6 flex gap-2">
+            <input 
+                type="text" 
+                id="new-item-input" 
+                placeholder="新しい項目を追加 (例: 就寝前の薬)" 
+                required
+                class="flex-grow px-4 py-3 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 dark:text-white transition shadow-sm"
+            >
+            <button 
+                type="submit" 
+                class="px-4 py-3 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-medium text-sm rounded-xl transition flex items-center justify-center shadow-md active:scale-95 shrink-0"
+            >
+                追加
+            </button>
+        </form>
+    </div>
+
+    <!-- フッター -->
+    <footer class="py-4 text-center text-xs text-slate-400 dark:text-slate-600">
+        <p>状態はブラウザ（LocalStorage）に自動保存されます</p>
+    </footer>
+
+    <script>
+        // 設定: 24時間 (ミリ秒)
+        const RESET_INTERVAL_MS = 24 * 60 * 60 * 1000;
+
+        // デフォルト項目
+        const DEFAULT_ITEMS = [
+            { id: 'item-1', label: '朝の薬', checked: false, timestamp: null },
+            { id: 'item-2', label: '昼の薬', checked: false, timestamp: null },
+            { id: 'item-3', label: '夜の薬', checked: false, timestamp: null }
+        ];
+
+        // ローカルストレージキー
+        const STORAGE_KEY = 'med_tracker_24h_data';
+
+        // アプリケーション状態
+        let items = [];
+
+        // データ読み込み
+        function loadData() {
+            const saved = localStorage.getItem(STORAGE_KEY);
+            if (saved) {
+                try {
+                    items = JSON.parse(saved);
+                } catch (e) {
+                    console.error('Failed to parse saved data', e);
+                    items = [...DEFAULT_ITEMS];
+                }
+            } else {
+                items = [...DEFAULT_ITEMS];
+            }
+            checkAutoReset();
+        }
+
+        // 保存
+        function saveData() {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
+        }
+
+        // 24時間超過チェック
+        function checkAutoReset() {
+            const now = Date.now();
+            let changed = false;
+
+            items.forEach(item => {
+                if (item.checked && item.timestamp) {
+                    const elapsed = now - item.timestamp;
+                    if (elapsed >= RESET_INTERVAL_MS) {
+                        item.checked = false;
+                        item.timestamp = null;
+                        changed = true;
+                    }
+                }
+            });
+
+            if (changed) {
+                saveData();
+            }
+        }
+
+        // トグル処理
+        function toggleItem(id) {
+            const now = Date.now();
+            items = items.map(item => {
+                if (item.id === id) {
+                    const isNowChecked = !item.checked;
+                    return {
+                        ...item,
+                        checked: isNowChecked,
+                        timestamp: isNowChecked ? now : null
+                    };
+                }
+                return item;
+            });
+            saveData();
+            render();
+        }
+
+        // 項目削除
+        function deleteItem(id, e) {
+            e.stopPropagation();
+            items = items.filter(item => item.id !== id);
+            saveData();
+            render();
+        }
+
+        // 時間フォーマット関数
+        function formatRemaining(timestamp) {
+            if (!timestamp) return '';
+            const now = Date.now();
+            const elapsed = now - timestamp;
+            const remaining = RESET_INTERVAL_MS - elapsed;
+
+            if (remaining <= 0) return 'リセット実行中...';
+
+            const hours = Math.floor(remaining / (1000 * 60 * 60));
+            const minutes = Math.floor((remaining % (1000 * 60 * 60)) / (1000 * 60));
+            const seconds = Math.floor((remaining % (1000 * 60)) / 1000);
+
+            return `自動リセットまで: ${hours}時間${minutes}分${seconds}秒`;
+        }
+
+        function formatCheckedTime(timestamp) {
+            if (!timestamp) return '';
+            const d = new Date(timestamp);
+            const hours = String(d.getHours()).padStart(2, '0');
+            const minutes = String(d.getMinutes()).padStart(2, '0');
+            return `服用完了: ${hours}:${minutes}`;
+        }
+
+        // 画面描画
+        function render() {
+            const container = document.getElementById('med-list');
+            container.innerHTML = '';
+
+            items.forEach(item => {
+                const card = document.createElement('div');
+                
+                const baseClasses = "relative flex items-center justify-between p-4 rounded-2xl border transition-all duration-200 cursor-pointer select-none shadow-sm";
+                const activeClasses = item.checked 
+                    ? "bg-emerald-50/80 dark:bg-emerald-950/30 border-emerald-300 dark:border-emerald-800" 
+                    : "bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600";
+                
+                card.className = `${baseClasses} ${activeClasses}`;
+                card.onclick = () => toggleItem(item.id);
+
+                const remainingText = item.checked ? formatRemaining(item.timestamp) : '';
+                const timeText = item.checked ? formatCheckedTime(item.timestamp) : '';
+
+                card.innerHTML = `
+                    <div class="flex items-center space-x-3.5 min-w-0 flex-1">
+                        <div class="flex-shrink-0">
+                            <div class="w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors ${
+                                item.checked 
+                                    ? 'bg-emerald-500 border-emerald-500 text-white' 
+                                    : 'border-slate-300 dark:border-slate-600 bg-transparent'
+                            }">
+                                ${item.checked ? `
+                                    <svg class="w-4 h-4 stroke-current" fill="none" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"></path>
+                                    </svg>
+                                ` : ''}
+                            </div>
+                        </div>
+                        <div class="min-w-0 flex-1">
+                            <p class="text-base font-semibold truncate ${
+                                item.checked 
+                                    ? 'text-emerald-900 dark:text-emerald-200 line-through opacity-80' 
+                                    : 'text-slate-800 dark:text-slate-100'
+                            }">
+                                ${escapeHtml(item.label)}
+                            </p>
+                            ${item.checked ? `
+                                <div class="mt-0.5 flex flex-col sm:flex-row sm:gap-3 text-xs text-emerald-600 dark:text-emerald-400 font-medium">
+                                    <span>${timeText}</span>
+                                    <span class="opacity-80">${remainingText}</span>
+                                </div>
+                            ` : `
+                                <p class="text-xs text-slate-400 dark:text-slate-500 mt-0.5">未服用</p>
+                            `}
+                        </div>
+                    </div>
+                    <button 
+                        onclick="deleteItem('${item.id}', event)"
+                        title="削除"
+                        class="p-2 text-slate-300 hover:text-rose-500 dark:text-slate-600 dark:hover:text-rose-400 transition rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700/50"
+                    >
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                        </svg>
+                    </button>
+                `;
+
+                container.appendChild(card);
+            });
+        }
+
+        // HTMLエスケープヘルパー
+        function escapeHtml(str) {
+            return str.replace(/[&<>"']/g, function(m) {
+                return {
+                    '&': '&amp;',
+                    '<': '&lt;',
+                    '>': '&gt;',
+                    '"': '&quot;',
+                    "'": '&#039;'
+                }[m];
+            });
+        }
+
+        // 新規項目追加
+        document.getElementById('add-form').onsubmit = (e) => {
+            e.preventDefault();
+            const input = document.getElementById('new-item-input');
+            const val = input.value.trim();
+            if (!val) return;
+
+            items.push({
+                id: 'item-' + Date.now(),
+                label: val,
+                checked: false,
+                timestamp: null
+            });
+
+            saveData();
+            render();
+            input.value = '';
+        };
+
+        // 初期化
+        loadData();
+        render();
+
+        // 毎秒表示とリセットタイマーを更新
+        setInterval(() => {
+            checkAutoReset();
+            render();
+        }, 1000);
+    </script>
+</body>
+</html>
